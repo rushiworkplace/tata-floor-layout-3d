@@ -9,6 +9,8 @@ import { ShelfManager } from './objects/ShelfManager'
 import { shelves } from './data/shelves'
 import { ProductData } from './types/ProductData'
 import { InfoPanel } from './ui/InfoPanel'
+import { createDynamicFloor, applyTiledTexture } from './utils/floorUtils'
+import { setupSupermarketEnvironment, addAmbientLighting } from './utils/environmentUtils'
 
 export default function App() {
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -33,6 +35,12 @@ export default function App() {
         rendererRef.current = new Renderer(canvasRef.current)
         raycasterRef.current = new RaycasterManager()
         shelfManagerRef.current = new ShelfManager()
+
+        // Setup supermarket environment
+        if (sceneRef.current) {
+            setupSupermarketEnvironment(sceneRef.current.scene)
+            addAmbientLighting(sceneRef.current.scene)
+        }
 
         // Initialize orbit controls
         if (cameraRef.current && rendererRef.current) {
@@ -65,6 +73,16 @@ export default function App() {
                     console.log(`Adding shelf group: ${shelf.id}, visible: ${shelfGroup.visible}, children: ${shelfGroup.children.length}`)
                     sceneRef.current!.addObject(shelfGroup)
                 })
+
+                // Create dynamic floor based on model bounding box
+                const shelvesList_raw = shelfManagerRef.current.getAllShelves()
+                if (shelvesList_raw.length > 0) {
+                    const firstShelfGroup = shelvesList_raw[0].getGroup()
+                    const dynamicFloor = createDynamicFloor(firstShelfGroup)
+                    applyTiledTexture(dynamicFloor)
+                    sceneRef.current.addObject(dynamicFloor)
+                    console.log("Dynamic floor created and added to scene")
+                }
 
                 const aisleBbox = shelfManagerRef.current.getAisleBoundingBox()
                 const bboxSize = aisleBbox.getSize(new THREE.Vector3())

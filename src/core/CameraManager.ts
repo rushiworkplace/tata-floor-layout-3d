@@ -28,11 +28,18 @@ export class CameraManager {
     return new Promise((resolve) => {
       this.isAnimating = true;
 
+      // Disable controls during animation to prevent conflicts
+      if (this.orbitControls) {
+        this.orbitControls.enabled = false;
+      }
+
       const bbox = new THREE.Box3().setFromObject(mesh);
       const frameResult = frameCameraToBox(bbox, this.camera, 1.5);
 
       const startPos = this.camera.position.clone();
-      const startTarget = this.targetLookAt.clone();
+      const startTarget = this.orbitControls
+        ? this.orbitControls.target.clone()
+        : this.targetLookAt.clone();
 
       const animState = { t: 0 };
 
@@ -46,28 +53,32 @@ export class CameraManager {
           newPos.lerp(frameResult.position, animState.t);
           this.camera.position.copy(newPos);
 
-          // Animate look-at target
-          const newTarget = startTarget.clone();
-          newTarget.lerp(frameResult.target, animState.t);
-          this.camera.lookAt(newTarget);
-
-          // Sync OrbitControls target during animation
+          // Animate controls target (if using OrbitControls)
           if (this.orbitControls) {
+            const newTarget = startTarget.clone();
+            newTarget.lerp(frameResult.target, animState.t);
             this.orbitControls.target.copy(newTarget);
+            this.orbitControls.update();
+          } else {
+            // Fallback: manual lookAt if not using controls
+            const newTarget = startTarget.clone();
+            newTarget.lerp(frameResult.target, animState.t);
+            this.camera.lookAt(newTarget);
           }
         },
         onComplete: () => {
-          // Ensure final position is exact
+          // Set final exact values
           this.camera.position.copy(frameResult.position);
-          this.camera.lookAt(frameResult.target);
-
           this.targetPosition = frameResult.position.clone();
           this.targetLookAt = frameResult.target.clone();
 
-          // Finalize OrbitControls
+          // Finalize controls
           if (this.orbitControls) {
             this.orbitControls.target.copy(frameResult.target);
             this.orbitControls.update();
+            this.orbitControls.enabled = true;
+          } else {
+            this.camera.lookAt(frameResult.target);
           }
 
           this.isAnimating = false;
@@ -104,8 +115,15 @@ export class CameraManager {
     return new Promise((resolve) => {
       this.isAnimating = true;
 
+      // Disable controls during animation to prevent conflicts
+      if (this.orbitControls) {
+        this.orbitControls.enabled = false;
+      }
+
       const startPos = this.camera.position.clone();
-      const startTarget = this.targetLookAt.clone();
+      const startTarget = this.orbitControls
+        ? this.orbitControls.target.clone()
+        : this.targetLookAt.clone();
 
       const animState = { t: 0 };
 
@@ -119,28 +137,32 @@ export class CameraManager {
           newPos.lerp(this.defaultPosition, animState.t);
           this.camera.position.copy(newPos);
 
-          // Animate look-at target
-          const newTarget = startTarget.clone();
-          newTarget.lerp(this.defaultLookAt, animState.t);
-          this.camera.lookAt(newTarget);
-
-          // Sync OrbitControls target during animation
+          // Animate controls target (if using OrbitControls)
           if (this.orbitControls) {
+            const newTarget = startTarget.clone();
+            newTarget.lerp(this.defaultLookAt, animState.t);
             this.orbitControls.target.copy(newTarget);
+            this.orbitControls.update();
+          } else {
+            // Fallback: manual lookAt if not using controls
+            const newTarget = startTarget.clone();
+            newTarget.lerp(this.defaultLookAt, animState.t);
+            this.camera.lookAt(newTarget);
           }
         },
         onComplete: () => {
-          // Ensure final position is exact
+          // Set final exact values
           this.camera.position.copy(this.defaultPosition);
-          this.camera.lookAt(this.defaultLookAt);
-
           this.targetPosition = this.defaultPosition.clone();
           this.targetLookAt = this.defaultLookAt.clone();
 
-          // Finalize OrbitControls
+          // Finalize controls
           if (this.orbitControls) {
             this.orbitControls.target.copy(this.defaultLookAt);
             this.orbitControls.update();
+            this.orbitControls.enabled = true;
+          } else {
+            this.camera.lookAt(this.defaultLookAt);
           }
 
           this.isAnimating = false;

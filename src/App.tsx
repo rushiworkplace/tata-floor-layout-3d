@@ -9,13 +9,20 @@ import { ShelfManager } from './objects/ShelfManager'
 import { shelves } from './data/shelves'
 import { ProductData } from './types/ProductData'
 import { InfoPanel } from './ui/InfoPanel'
-import { createDynamicFloor, applyTiledTexture } from './utils/floorUtils'
+import { LoadingOverlay } from './ui/LoadingOverlay'
 import { setupSupermarketEnvironment, addAmbientLighting } from './utils/environmentUtils'
+import { removeDefaultPlanes, createBoundingBoxFloor } from './utils/sceneCleanup'
+
+type InteractionMode = 'SELECT' | 'FOCUS'
 
 export default function App() {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const [selectedProduct, setSelectedProduct] = useState<ProductData | null>(null)
     const [isAnimating, setIsAnimating] = useState(false)
+    const [interactionMode, setInteractionMode] = useState<InteractionMode>('SELECT')
+    const [isLoading, setIsLoading] = useState(false)
+    const [loadingProgress, setLoadingProgress] = useState(0)
+    const [sceneReady, setSceneReady] = useState(false)
 
     const sceneRef = useRef<SceneManager | null>(null)
     const cameraRef = useRef<CameraManager | null>(null)
@@ -23,6 +30,36 @@ export default function App() {
     const raycasterRef = useRef<RaycasterManager | null>(null)
     const shelfManagerRef = useRef<ShelfManager | null>(null)
     const animationIdRef = useRef<number | null>(null)
+
+    // Helper functions for interaction mode management
+    const enableSelectionMode = () => {
+        setInteractionMode('SELECT')
+        if (cameraRef.current) {
+            cameraRef.current.enableOrbitControls()
+        }
+        console.log('[App] Selection mode enabled - raycasting active')
+    }
+
+    const enableFocusMode = () => {
+        setInteractionMode('FOCUS')
+        if (cameraRef.current) {
+            cameraRef.current.enableOrbitControls() // Keep controls for orbiting around product
+        }
+        console.log('[App] Focus mode enabled - raycasting disabled')
+    }
+
+    const handleLoadingStart = () => {
+        setIsLoading(true)
+        setLoadingProgress(0)
+    }
+
+    const handleLoadingProgress = (progress: number) => {
+        setLoadingProgress(Math.min(progress, 99)) // Cap at 99% until actual completion
+    }
+
+    const handleLoadingComplete = () => {
+        setSceneReady(true)
+    }
 
     useEffect(() => {
         if (!canvasRef.current) return
@@ -58,6 +95,8 @@ export default function App() {
                 for (const shelfConfig of shelves) {
                     await shelfManagerRef.current.addShelf(shelfConfig)
                     shelvesLoaded++
+                    // Update loading progress based on shelves loaded
+                    handleLoadingProgress((shelvesLoaded / shelves.length) * 80) // 0-80%
                 }
             }
         }
@@ -74,14 +113,16 @@ export default function App() {
                     sceneRef.current!.addObject(shelfGroup)
                 })
 
-                // Create dynamic floor based on model bounding box
+                // Remove any default planes and create optimized bounding-box floor
+                handleLoadingProgress(85)
+                removeDefaultPlanes(sceneRef.current.scene)
+
                 const shelvesList_raw = shelfManagerRef.current.getAllShelves()
                 if (shelvesList_raw.length > 0) {
                     const firstShelfGroup = shelvesList_raw[0].getGroup()
-                    const dynamicFloor = createDynamicFloor(firstShelfGroup)
-                    applyTiledTexture(dynamicFloor)
+                    const dynamicFloor = createBoundingBoxFloor(firstShelfGroup)
                     sceneRef.current.addObject(dynamicFloor)
-                    console.log("Dynamic floor created and added to scene")
+                    console.log("Optimized bounding-box floor created and added to scene")
                 }
 
                 const aisleBbox = shelfManagerRef.current.getAisleBoundingBox()
@@ -102,6 +143,10 @@ export default function App() {
                     cameraRef.current.camera.lookAt(0, 0, 0)
                     console.log("Set fallback camera position:", cameraRef.current.camera.position)
                 }
+
+                // Mark loading as complete
+                handleLoadingProgress(100)
+                setIsLoading(false)
             }
             setupComplete = true
         })
@@ -118,6 +163,12 @@ export default function App() {
         animate()
 
         const handleCanvasClick = async (event: MouseEvent) => {
+            // Only allow selection in SELECT mode
+            if (interactionMode !== 'SELECT') {
+                console.log('[App] Click ignored - in FOCUS mode, raycasting disabled')
+                return
+            }
+
             if (
                 !setupComplete ||
                 !canvasRef.current ||
@@ -167,6 +218,8 @@ export default function App() {
                         console.log("[App] Selected product:", productData.productName)
                         setSelectedProduct(productData)
                         await cameraRef.current.animateToProduct(clickedMesh)
+                        // Switch to FOCUS mode to prevent accidental re-selection
+                        enableFocusMode()
                     } else {
                         console.log("[App] selectProduct returned null")
                     }
@@ -229,13 +282,23 @@ export default function App() {
         shelfManagerRef.current.deselectProduct()
         await cameraRef.current.resetCamera()
         cameraRef.current.enableOrbitControls()
+        // Return to SELECT mode to allow new product selection
+        enableSelectionMode()
         setIsAnimating(false)
     }
 
     return (
         <div className="app">
             <canvas ref={canvasRef} className="canvas"></canvas>
-            <InfoPanel selectedProduct={selectedProduct} onBackClick={handleBackToFloor} />
+            <LoadingOverlay
+                isLoading={isLoading}
+                progress={loadingProgress}
+                onEnter={handleLoadingStart}
+                onLoadingComplete={handleLoadingComplete}
+            />
+            {sceneReady && (
+                <InfoPanel selectedProduct={selectedProduct} onBackClick={handleBackToFloor} />
+            )}
         </div>
     )
 }

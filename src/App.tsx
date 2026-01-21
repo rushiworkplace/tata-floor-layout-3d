@@ -12,6 +12,7 @@ import { InfoPanel } from './ui/InfoPanel'
 import { LoadingOverlay } from './ui/LoadingOverlay'
 import { setupSupermarketEnvironment, addAmbientLighting } from './utils/environmentUtils'
 import { removeDefaultPlanes, createBoundingBoxFloor } from './utils/sceneCleanup'
+import { findSelectableProductMesh } from './utils/meshFilter'
 
 type InteractionMode = 'SELECT' | 'FOCUS'
 
@@ -20,8 +21,11 @@ export default function App() {
     const [selectedProduct, setSelectedProduct] = useState<ProductData | null>(null)
     const [isAnimating, setIsAnimating] = useState(false)
     const [interactionMode, setInteractionMode] = useState<InteractionMode>('SELECT')
-    const [isLoading, setIsLoading] = useState(false)
-    const [loadingProgress, setLoadingProgress] = useState(0)
+
+    // State machine for loader coordination
+    const [isEnvironmentLoaded, setIsEnvironmentLoaded] = useState(false)
+    const [hasUserEntered, setHasUserEntered] = useState(false)
+    const [isExperienceActive, setIsExperienceActive] = useState(false)
     const [sceneReady, setSceneReady] = useState(false)
 
     const sceneRef = useRef<SceneManager | null>(null)
@@ -45,21 +49,36 @@ export default function App() {
         if (cameraRef.current) {
             cameraRef.current.enableOrbitControls() // Keep controls for orbiting around product
         }
-        console.log('[App] Focus mode enabled - raycasting disabled')
+        console.log('[App] Focus mode enabled - raycasting DISABLED')
     }
 
-    const handleLoadingStart = () => {
-        setIsLoading(true)
-        setLoadingProgress(0)
+    // State machine coordinator: transitions when both flags are true
+    const startExperienceIfReady = () => {
+        if (isEnvironmentLoaded && hasUserEntered && !isExperienceActive) {
+            console.log('[App] Both conditions met - activating experience')
+            setIsExperienceActive(true)
+            setSceneReady(true)
+        }
     }
 
-    const handleLoadingProgress = (progress: number) => {
-        setLoadingProgress(Math.min(progress, 99)) // Cap at 99% until actual completion
+    const handleUserEnter = () => {
+        console.log('[App] User clicked Enter')
+        setHasUserEntered(true)
     }
 
-    const handleLoadingComplete = () => {
-        setSceneReady(true)
+    const handleEnvironmentLoaded = () => {
+        console.log('[App] Environment finished loading')
+        setIsEnvironmentLoaded(true)
     }
+
+    const handleRevealComplete = () => {
+        console.log('[App] Loading overlay reveal animation complete')
+    }
+
+    // Trigger experience start when state machine conditions are met
+    useEffect(() => {
+        startExperienceIfReady()
+    }, [isEnvironmentLoaded, hasUserEntered, isExperienceActive])
 
     useEffect(() => {
         if (!canvasRef.current) return
@@ -95,8 +114,6 @@ export default function App() {
                 for (const shelfConfig of shelves) {
                     await shelfManagerRef.current.addShelf(shelfConfig)
                     shelvesLoaded++
-                    // Update loading progress based on shelves loaded
-                    handleLoadingProgress((shelvesLoaded / shelves.length) * 80) // 0-80%
                 }
             }
         }
@@ -114,7 +131,6 @@ export default function App() {
                 })
 
                 // Remove any default planes and create optimized bounding-box floor
-                handleLoadingProgress(85)
                 removeDefaultPlanes(sceneRef.current.scene)
 
                 const shelvesList_raw = shelfManagerRef.current.getAllShelves()
@@ -133,7 +149,6 @@ export default function App() {
                 console.log("Aisle bbox min:", aisleBbox.min)
                 console.log("Aisle bbox max:", aisleBbox.max)
                 console.log("Camera before framing:", cameraRef.current.camera.position)
-
                 if (bboxSize.length() > 0) {
                     cameraRef.current.setDefaultAisleView(aisleBbox)
                     console.log("Camera after framing:", cameraRef.current.camera.position)
@@ -144,9 +159,8 @@ export default function App() {
                     console.log("Set fallback camera position:", cameraRef.current.camera.position)
                 }
 
-                // Mark loading as complete
-                handleLoadingProgress(100)
-                setIsLoading(false)
+                // Mark environment as loaded - triggers state machine check
+                handleEnvironmentLoaded()
             }
             setupComplete = true
         })
@@ -163,9 +177,9 @@ export default function App() {
         animate()
 
         const handleCanvasClick = async (event: MouseEvent) => {
-            // Only allow selection in SELECT mode
+            // CRITICAL: Hard selection lock in FOCUS mode
             if (interactionMode !== 'SELECT') {
-                console.log('[App] Click ignored - in FOCUS mode, raycasting disabled')
+                console.log('[App] ⛔ Click ignored - in FOCUS mode, raycasting disabled')
                 return
             }
 
@@ -188,24 +202,35 @@ export default function App() {
                 let clickedMesh = intersects[0].object as THREE.Mesh
                 console.log("[App] Initial hit mesh:", clickedMesh.name, "userData:", clickedMesh.userData)
 
-                // Walk up parent chain to find object with product userData
-                let parentChainLog = [clickedMesh.name];
-                while (clickedMesh && clickedMesh.userData?.type !== "product") {
-                    clickedMesh = clickedMesh.parent as THREE.Mesh
-                    if (clickedMesh) {
-                        parentChainLog.push(clickedMesh.name);
+                // Use mesh filter to find selectable product
+                const selectableProductMesh = findSelectableProductMesh(clickedMesh)
+
+                if (!selectableProductMesh) {
+                    console.log("[App] ❌ Click did not hit a selectable product mesh")
+                    return
+                }
+
+                console.log("[App] ✓ Found selectable product mesh:", selectableProductMesh.name)
+
+                // Try to get product info from the selectable mesh
+                let parentChainLog = [selectableProductMesh.name];
+                let productMesh = selectableProductMesh as THREE.Object3D | null
+                while (productMesh && (productMesh as any).userData?.type !== "product") {
+                    productMesh = productMesh.parent
+                    if (productMesh) {
+                        parentChainLog.push(productMesh.name);
                     }
                 }
                 console.log("[App] Parent chain:", parentChainLog.join(" <- "))
 
-                if (!clickedMesh || clickedMesh.userData?.type !== "product") {
+                if (!productMesh || (productMesh as any).userData?.type !== "product") {
                     console.log("[App] ❌ Click did not hit a product mesh after parent chain walk")
                     return
                 }
 
-                console.log("[App] ✓ Found product mesh:", clickedMesh.name, "userData:", clickedMesh.userData)
+                console.log("[App] ✓ Found product mesh:", productMesh.name, "userData:", (productMesh as any).userData)
 
-                const productInfo = shelfManagerRef.current.getProductByMesh(clickedMesh)
+                const productInfo = shelfManagerRef.current.getProductByMesh(productMesh as THREE.Mesh)
                 console.log("[App] Product info retrieved:", productInfo)
 
                 if (productInfo) {
@@ -291,10 +316,9 @@ export default function App() {
         <div className="app">
             <canvas ref={canvasRef} className="canvas"></canvas>
             <LoadingOverlay
-                isLoading={isLoading}
-                progress={loadingProgress}
-                onEnter={handleLoadingStart}
-                onLoadingComplete={handleLoadingComplete}
+                isEnvironmentLoaded={isEnvironmentLoaded}
+                onUserEnter={handleUserEnter}
+                onRevealComplete={handleRevealComplete}
             />
             {sceneReady && (
                 <InfoPanel selectedProduct={selectedProduct} onBackClick={handleBackToFloor} />

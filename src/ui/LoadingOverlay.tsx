@@ -3,68 +3,68 @@ import gsap from 'gsap'
 import './LoadingOverlay.css'
 
 interface LoadingOverlayProps {
-    isLoading: boolean
-    progress: number // 0-100
-    onEnter: () => void
-    onLoadingComplete: () => void
+    isEnvironmentLoaded: boolean
+    onUserEnter: () => void
+    onRevealComplete: () => void
 }
 
 export function LoadingOverlay({
-    isLoading,
-    progress,
-    onEnter,
-    onLoadingComplete,
+    isEnvironmentLoaded,
+    onUserEnter,
+    onRevealComplete,
 }: LoadingOverlayProps) {
+    const [hasUserEntered, setHasUserEntered] = useState(false)
+    const [isRevealing, setIsRevealing] = useState(false)
     const [showOverlay, setShowOverlay] = useState(true)
-    const [hasClicked, setHasClicked] = useState(false)
     const overlayRef = useRef<HTMLDivElement>(null)
     const contentRef = useRef<HTMLDivElement>(null)
     const progressBarRef = useRef<HTMLDivElement>(null)
 
-    // Animate reveal when loading completes
+    // Trigger reveal when BOTH conditions are met AND we haven't started yet
     useEffect(() => {
-        if (!isLoading && hasClicked && showOverlay) {
+        if (isEnvironmentLoaded && hasUserEntered && !isRevealing && showOverlay) {
+            console.log("[LoadingOverlay] Both conditions met - starting reveal animation");
+            setIsRevealing(true)
             animateReveal()
         }
-    }, [isLoading, hasClicked, showOverlay])
+    }, [isEnvironmentLoaded, hasUserEntered, isRevealing, showOverlay])
 
-    // Update progress bar
+    // Animate progress bar
     useEffect(() => {
-        if (progressBarRef.current) {
+        if (hasUserEntered && progressBarRef.current) {
             gsap.to(progressBarRef.current, {
-                width: `${progress}%`,
-                duration: 0.3,
-                ease: 'power2.out',
+                width: "100%",
+                duration: 0.5,
+                ease: "power2.out",
             })
         }
-    }, [progress])
+    }, [hasUserEntered])
 
     const handleEnterClick = useCallback(() => {
-        setHasClicked(true)
-        onEnter()
+        console.log("[LoadingOverlay] User clicked Enter");
+        setHasUserEntered(true)
+        onUserEnter()
 
-        // Fade out content and show loading
+        // Fade out content
         if (contentRef.current) {
             gsap.to(contentRef.current, {
                 opacity: 0,
                 duration: 0.4,
-                ease: 'power2.inOut',
+                ease: "power2.inOut",
             })
         }
-    }, [onEnter])
+    }, [onUserEnter])
 
     const animateReveal = useCallback(() => {
         if (!overlayRef.current) return
 
-        // Sequence:
-        // 1. Scale up with blur effect
-        // 2. Fade out
-        // 3. Remove from DOM
+        console.log("[LoadingOverlay] Starting reveal animation");
 
         const tl = gsap.timeline({
             onComplete: () => {
+                console.log("[LoadingOverlay] Reveal complete - removing overlay");
                 setShowOverlay(false)
-                onLoadingComplete()
+                onRevealComplete()
             },
         })
 
@@ -72,7 +72,7 @@ export function LoadingOverlay({
         tl.to(
             overlayRef.current,
             {
-                backdropFilter: 'blur(20px)',
+                backdropFilter: "blur(20px)",
                 duration: 0.3,
             },
             0
@@ -85,11 +85,11 @@ export function LoadingOverlay({
                 scale: 1.05,
                 opacity: 0,
                 duration: 0.6,
-                ease: 'power2.inOut',
+                ease: "power2.inOut",
             },
             0.1
         )
-    }, [onLoadingComplete])
+    }, [onRevealComplete])
 
     if (!showOverlay) {
         return null
@@ -97,7 +97,7 @@ export function LoadingOverlay({
 
     return (
         <div ref={overlayRef} className="loading-overlay">
-            {!hasClicked && (
+            {!hasUserEntered && (
                 <div ref={contentRef} className="loading-content">
                     <div className="loading-header">
                         <h1 className="loading-title">Tata Communications</h1>
@@ -113,7 +113,7 @@ export function LoadingOverlay({
                 </div>
             )}
 
-            {hasClicked && (
+            {hasUserEntered && (
                 <div className="loading-progress-container">
                     <div className="loading-spinner">
                         <div className="spinner"></div>
@@ -122,8 +122,7 @@ export function LoadingOverlay({
                     <div className="progress-bar-bg">
                         <div ref={progressBarRef} className="progress-bar"></div>
                     </div>
-                    <p className="loading-percentage">{Math.round(progress)}%</p>
-                </div>
+                    <p className="loading-percentage">{isEnvironmentLoaded ? "100" : "Loading"}%</p>                </div>
             )}
         </div>
     )

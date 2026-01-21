@@ -46,7 +46,28 @@ export class ShelfManager {
     }
 
     this.shelves.set(shelf.id, shelf);
+    this.debugDumpAllProducts();
     return shelf;
+  }
+
+  private debugDumpAllProducts(): void {
+    console.log("========== DEBUG: ALL REGISTERED PRODUCTS ==========");
+    this.shelves.forEach((shelf) => {
+      const products = shelf.getAllProducts();
+      const meshes = shelf.getAllProductMeshes();
+      console.log(`Shelf: ${shelf.id}`);
+      console.log(`  Total products: ${products.length}`);
+      products.forEach((product, index) => {
+        const mesh = meshes[index];
+        console.log(
+          `  ${index + 1}. Product: "${product.productName}" (meshId: ${product.meshId}, mesh.name: "${mesh?.name || "N/A"}")`,
+        );
+      });
+    });
+    console.log(
+      `\nSelectable objects map size: ${this.selectableObjects.size}`,
+    );
+    console.log("====================================================");
   }
 
   private traverseAndRegisterProducts(shelf: Shelf, model: THREE.Group): void {
@@ -117,8 +138,11 @@ export class ShelfManager {
           shelfId: shelf.id,
           meshId: meshId,
         });
+
+        // Verify registration
+        const stored = this.selectableObjects.get(child);
         console.log(
-          `[ShelfManager] Registered product ${productCounter + 1}: "${meshName}"`,
+          `[ShelfManager] ✓ Registered product ${productCounter + 1}: "${meshName}" (meshId: ${meshId}, map contains: ${stored ? "YES" : "NO"})`,
         );
         productCounter++;
       }
@@ -186,7 +210,17 @@ export class ShelfManager {
     // First try direct lookup
     let info = this.selectableObjects.get(mesh);
 
+    if (info) {
+      console.log(
+        `[ShelfManager] Found product via direct lookup: ${mesh.name}`,
+      );
+      return info;
+    }
+
     if (!info && mesh.userData?.type === "product") {
+      console.log(
+        `[ShelfManager] Attempting fallback lookup for: ${mesh.name}`,
+      );
       // Fallback: reconstruct from userData
       const shelfId = mesh.userData.shelfId;
       const shelf = this.shelves.get(shelfId);
@@ -199,15 +233,30 @@ export class ShelfManager {
         );
 
         if (product) {
+          console.log(
+            `[ShelfManager] Found via fallback: ${product.productName}`,
+          );
           return {
             shelfId: shelfId,
             meshId: product.meshId,
           };
+        } else {
+          console.log(
+            `[ShelfManager] Fallback failed: product not found for ${mesh.userData.productName}`,
+          );
         }
+      } else {
+        console.log(
+          `[ShelfManager] Fallback failed: shelf not found ${shelfId}`,
+        );
       }
+    } else {
+      console.log(
+        `[ShelfManager] No direct lookup and no product userData for: ${mesh.name}`,
+      );
     }
 
-    return info;
+    return undefined;
   }
 
   getProductData(shelfId: string, meshId: string): ProductData | null {

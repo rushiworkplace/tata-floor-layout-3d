@@ -117,35 +117,46 @@ export default function App() {
 
             if (intersects.length > 0) {
                 let clickedMesh = intersects[0].object as THREE.Mesh
+                console.log("[App] Initial hit mesh:", clickedMesh.name, "userData:", clickedMesh.userData)
 
                 // Walk up parent chain to find object with product userData
+                let parentChainLog = [clickedMesh.name];
                 while (clickedMesh && clickedMesh.userData?.type !== "product") {
                     clickedMesh = clickedMesh.parent as THREE.Mesh
+                    if (clickedMesh) {
+                        parentChainLog.push(clickedMesh.name);
+                    }
                 }
+                console.log("[App] Parent chain:", parentChainLog.join(" <- "))
 
                 if (!clickedMesh || clickedMesh.userData?.type !== "product") {
-                    console.log("[App] Click did not hit a product mesh")
+                    console.log("[App] ❌ Click did not hit a product mesh after parent chain walk")
                     return
                 }
 
-                console.log("[App] Clicked product:", clickedMesh.userData.productName)
+                console.log("[App] ✓ Found product mesh:", clickedMesh.name, "userData:", clickedMesh.userData)
 
                 const productInfo = shelfManagerRef.current.getProductByMesh(clickedMesh)
+                console.log("[App] Product info retrieved:", productInfo)
 
                 if (productInfo) {
                     setIsAnimating(true)
                     cameraRef.current.disableOrbitControls()
                     const productData = shelfManagerRef.current.selectProduct(productInfo.shelfId, productInfo.meshId)
+                    console.log("[App] Product data from selectProduct:", productData)
 
                     if (productData) {
                         console.log("[App] Selected product:", productData.productName)
                         setSelectedProduct(productData)
                         await cameraRef.current.animateToProduct(clickedMesh)
+                    } else {
+                        console.log("[App] selectProduct returned null")
                     }
                     cameraRef.current.enableOrbitControls()
                     setIsAnimating(false)
                 } else {
-                    console.log("[App] Product info not found for mesh")
+                    console.log("[App] Product info not found for mesh:", clickedMesh.name)
+                    console.log("[App] Mesh userData:", clickedMesh.userData)
                     setIsAnimating(false)
                 }
             } else {
